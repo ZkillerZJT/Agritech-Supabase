@@ -1,16 +1,26 @@
 #include "Credentials.h"
-#include <time.h>
-#include "sntp.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <random>
+#include <OneWire.h>
+#include <string.h>
+#include <DallasTemperature.h>
+#define ONE_WIRE_BUS 35 //se esta utilizando puerto GPIO35 para el onewire
+// Crear un generador de números aleatorios TEMPORAL
+    std::random_device rd;  // Obtiene un valor aleatorio desde el hardware
+    std::mt19937 gen(rd()); // Inicializa el generador con el valor aleatorio
 
+    // Definir el rango de valores (20 a 28)
+    std::uniform_real_distribution<float> dis(20.0, 28.0);
 //valores a insertar(en fase de pruebas serán fijos)
-int arduinoID = 1;  // Example Arduino ID
-String sensorID = "Arduino1";
-int plantID = 1;
-int sensorTypeID = 1;
 // 1 para humedad, 2 para temperatura y 3 para luz.
+OneWire oneWire(ONE_WIRE_BUS); // inicializar sensor de temperatura
+DallasTemperature sensors(&oneWire);
+// arrays to hold device address
+DeviceAddress insideThermometer;
+
 float lightSensor = 300.2;  // Example light sensor value
+float temperature;
 int humSensor;              // Example pH sensor value
 int humSensor2;
 int humSensorID = 32;
@@ -40,81 +50,20 @@ void showHumedad(int analogSensor, int wet, int dry) {
     Serial.println("Dry");
   }
 }
-String fecha;
-String hora;
-// NTP Server settings
-const char *ntpServer1 = "pool.ntp.org";
-const char *ntpServer2 = "time.nist.gov";
-const long gmtOffset_sec = -3 * 3600;  // Adjust for your timezone (e.g., -3 for GMT-3)
-const int daylightOffset_sec = 0;
 
-void obtenertlocal(String &fecha, String &hora) {  // funcion completada, pero sin usar
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    Serial.println("Time not available yet...");
-    return;
-  }
-  // Intento de formatear las variables fecha y hora
-  fecha = String(timeinfo.tm_year + 1900) + "/" + String(timeinfo.tm_mon + 1) + "/" + String(timeinfo.tm_mday);
-  // Asignar la hora en formato HH:MM:SS
-  hora = String(timeinfo.tm_hour) + ":" + String(timeinfo.tm_min) + ":" + String(timeinfo.tm_sec);
-  Serial.print("DEBUG: IN func() obtenertlocal \nFecha definida como: ");
-  Serial.println(fecha);
-  Serial.print("Hora como: ");
-  Serial.println(hora);
-  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
-}
-
-void timeavailable(struct timeval *t) {
-  Serial.println("Got time adjustment from NTP!");
-  obtenertlocal(fecha, hora);
-}
 int convertirHum(int limiteHumedad,int sensorReading){
   // usar limite seco
   float porcentaje = (100-(((float)sensorReading/limiteHumedad)*100));// relativo a humedad, muestra cantidad de humedad
-  //Serial.print("Porcentaje de humedad: ");
-  //Serial.print(porcentaje);
   return porcentaje;
 }
-
-void setup() {
-  Serial.begin(115200);
-  while (!Serial && millis() < 5000)
-    ;
-  WiFi.begin(ssid, pass);
-  Serial.print("Intentando conectar a: ");
-  Serial.print(ssid);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-
-  }
-  pinMode(humSensorID, INPUT);
-  pinMode(humSensor2ID, INPUT);
-  // print out info about the connection:
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer1, ntpServer2);
-  sntp_set_time_sync_notification_cb(timeavailable);
-  sntp_servermode_dhcp(1);  // (optional)
-  delay(3000);
+void obtainTempSensor(){
+  sensors.begin();
+  Serial.print("Found ");
+  Serial.print(sensors.getDeviceCount(), DEC);
+  Serial.println(" devices.");
 }
-/*String sensorReadingJson(int reading, int sensorID, int arduinoID, int plantID, int sensorTypeID) {
-  // Obtener la fecha y hora actual en formato ISO 8601
-  String createdAt = fecha + "T" + hora + ".280Z";  // Formato de fecha y hora
-  String updatedAt = createdAt;  // Asumir que createdAt y updatedAt son iguales al momento de la creación
 
-  // Crear el JSON con los datos del sensor
-  String jsonData = "{";
-  jsonData += "\"id\": " + String(sensorID) + ",";         // ID del sensor
-  jsonData += "\"arduinoId\": " + String(arduinoID) + ","; // ID del Arduino
-  jsonData += "\"plantId\": " + String(plantId) + ",";     // ID de la planta (puede ser un valor fijo o variable)
-  jsonData += "\"sensorTypeId\": " + String(sensorTypeID) + ","; // ID del tipo de sensor
-  jsonData += "\"createdAt\": \"" + createdAt + "\",";      // Fecha de creación
-  jsonData += "\"updatedAt\": \"" + updatedAt + "\"";       // Fecha de actualización
-  jsonData += "}";
-
-  return jsonData;
-}*/
-String sensorPayloadJson(int humidity, float temperature = 28.0, int light = 300) {
+String sensorPayloadJson(int humidity, float temperature, int light = 300) {
   // Create the JSON with sensor data
   String jsonData = R"({
         "sensor_id": "Arduino1",
@@ -125,16 +74,36 @@ String sensorPayloadJson(int humidity, float temperature = 28.0, int light = 300
 
   return jsonData;
 }
+void printDeviceAddress(DeviceAddress deviceAddress)
+{
+  for (uint8_t i = 0; i < 8; i++)
+  {
+    if (deviceAddress[i] < 16) Serial.print("0");
+    Serial.print(deviceAddress[i], HEX);
+    if (i < 7) Serial.print(":"); // Formato de dirección legible
+  }
+}
 float getRandomTemperature() {// sin uso por ahora
-    // Crear un generador de números aleatorios
-    std::random_device rd;  // Obtiene un valor aleatorio desde el hardware
-    std::mt19937 gen(rd()); // Inicializa el generador con el valor aleatorio
-
-    // Definir el rango de valores (20 a 28)
-    std::uniform_real_distribution<float> dis(20.0, 28.0);
-
     // Generar y devolver un número aleatorio en el rango especificado
     return dis(gen);
+}
+// function to print the temperature for a device
+float printTemperature(DeviceAddress deviceAddress)
+{
+  float tempC = sensors.getTempC(deviceAddress);
+  
+  if(tempC == DEVICE_DISCONNECTED_C) 
+  {
+    Serial.println("Error: Could not read temperature data");
+    return 0;
+  }
+  
+  Serial.print("Temp C: ");
+  Serial.print(tempC);
+  
+  Serial.print(" Temp F: ");
+  Serial.println(DallasTemperature::toFahrenheit(tempC)); // Converts tempC to Fahrenheit
+  return tempC;
 }
 
 void httpSetup(String jsonData, const String link) {
@@ -155,34 +124,103 @@ void httpSetup(String jsonData, const String link) {
     const unsigned long timeoutDuration = 6000; // Timeout de 6 segundos
     int httpResponseCode = http.PUT(jsonData);
     String response = http.getString();
-    while  (millis()-startTime < timeoutDuration){
-    if (httpResponseCode > 0) {
-
-      //String response = http.getString();
-      Serial.print("La respuesta es: ");
-      Serial.println(String(httpResponseCode));
-      
-      Serial.println("Datos enviados: " + response);
-    } else {
-      Serial.print("timeout!");
-      Serial.println("Error al enviar datos: " + String(httpResponseCode));
-      Serial.println("response code: " + response);
+    while  ((millis()-startTime) < timeoutDuration){
+      if (httpResponseCode > 0) {
+        //String response = http.getString();
+        Serial.print("La respuesta es: ");
+        Serial.println(String(httpResponseCode));
+        Serial.println("Datos enviados: " + response);
+      } 
+      else {
+        Serial.print("timeout!");
+        Serial.println("Error al enviar datos: " + String(httpResponseCode));
+        Serial.println("response code: " + response);
+      }
+      if((millis()-startTime) > timeoutDuration) {
+        Serial.print("timeout!");
+        Serial.println("codigo de respuesta: " + String(httpResponseCode));
+        Serial.println("response: " + response);
+        break;
+      }
+      delay(5000);
+      break;
     }
-    }
-
     http.end();
   }
 }
+void wifiConnect(){
+  unsigned long startTime = millis(); // Record the start time
+  const unsigned long timeout = 8000; // Timeout duration in milliseconds (8 seconds)
+  const unsigned long bigtimeout = 16000; // Timeout duration in milliseconds (8 seconds)
+  WiFi.begin(ssid, pass);
+  Serial.print("Intentando conectar a: ");
+  Serial.print(ssid);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    if (millis() - startTime >= timeout) {
+            Serial.println("\nTimeout reached. Retrying...");
+            WiFi.disconnect();
+            WiFi.begin(ssid,pass); // Restart the ESP32 if connection fails
+            // Alternatively, you could call WiFi.disconnect() and WiFi.begin() again here instead of restarting.
+    }
+    if (millis() - startTime >= bigtimeout) {
+            Serial.println("\nBIG Timeout reached. Restarting...");
+            ESP.restart(); // Restart the ESP32 if connection fails
+            // Alternatively, you could call WiFi.disconnect() and WiFi.begin() again here instead of restarting.
+    }
+  }
+}
+void setup() {
+  Serial.begin(115200);
+  wifiConnect();
+  
+  pinMode(humSensorID, INPUT);
+  pinMode(humSensor2ID, INPUT);
+  sensors.begin();// iniciar el onewire
+  // locate devices on the bus
+  Serial.print("Locating devices...");
+  sensors.begin();
+  Serial.print("Found ");
+  Serial.print(sensors.getDeviceCount(), DEC);
+  Serial.println(" devices.");
+
+  // report parasite power requirements
+  Serial.print("Parasite power is: "); 
+  if (sensors.isParasitePowerMode()) Serial.println("ON");
+  else Serial.println("OFF");
+  
+  // Search for devices on the bus and assign based on an index.
+  if (!sensors.getAddress(insideThermometer, 0)) {
+    Serial.println("Unable to find address for Device 0"); 
+    return; // Salir si no se encuentra el dispositivo
+  }
+
+  // show the addresses we found on the bus
+  Serial.print("Device 0 Address: ");
+  printDeviceAddress(insideThermometer);
+  Serial.println();
+
+  // set the resolution to 9 bit (Each Dallas/Maxim device is capable of several different resolutions)
+  sensors.setResolution(insideThermometer, 9);
+ 
+  Serial.print("Device 0 Resolution: ");
+  Serial.print(sensors.getResolution(insideThermometer), DEC); 
+  Serial.println();
+}
 void loop() {
   obtainData(humSensor, humSensorID);//puerto 32
+  sensors.requestTemperatures(); // Send the command to get temperatures
   //obtainData(humSensor2, humSensor2ID); //puerto 35
-  showHumedad(humSensor,dry32,wet32);
+  float temperature=printTemperature(insideThermometer); // imprime la temp. tambien se le puede asignar a un valor, función tipo float.
+  showHumedad(humSensor,dry32,wet32); // esta wea no está imprimiendo nada
   int humedad = convertirHum(dry32,humSensor);
   //showHumedad(humSensor2,dry35,wet35);
   //String jsonPayload = sensorPayloadJson(humSensor);  // Solo incluye humedad
-  Serial.print(String(sensorPayloadJson(humedad)));
-  httpSetup(String(sensorPayloadJson(humedad)), endpoint);
-  Serial.print(String(sensorPayloadJson(humedad)));
-  delay(10000);
+  Serial.print(String(sensorPayloadJson(humedad, 25 ,lightSensor)));//agregar la temperatura, en un valor previamente asociado
+  httpSetup(String(sensorPayloadJson(humedad,25,lightSensor)), endpoint);
+  //Serial.print(sensors.getTempCByIndex(0));// no muy seguro de si 0 sea el index adecuado
+  Serial.print("finalizando bucle.");
+  delay(60000);
   //Serial.print("fin de bucle");
 }
