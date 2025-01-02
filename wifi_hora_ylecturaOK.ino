@@ -177,6 +177,7 @@ void setup() {
   
   pinMode(humSensorID, INPUT);
   pinMode(humSensor2ID, INPUT);
+  pinMode(35, INPUT);//temperature pin!!!
   sensors.begin();// iniciar el onewire
   // locate devices on the bus
   Serial.print("Locating devices...");
